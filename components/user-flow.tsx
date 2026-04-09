@@ -41,8 +41,12 @@ const priorityOptions = [
 
 const subscribeToStorage = () => () => {};
 
-function useHydratedValue<T>(getClientValue: () => T, getServerValue: () => T): T {
-  return useSyncExternalStore(subscribeToStorage, getClientValue, getServerValue);
+function useIsHydrated(): boolean {
+  return useSyncExternalStore(
+    subscribeToStorage,
+    () => true,
+    () => false
+  );
 }
 
 function SiteHeader({ currentPath }: { currentPath: string }) {
@@ -117,10 +121,8 @@ function TrackingTimeline({ steps }: { steps: TrackingStep[] }) {
 }
 
 export function OrderEntryPage() {
-  const storedForm = useHydratedValue(
-    () => loadOrderForm() ?? defaultOrderForm,
-    () => defaultOrderForm
-  );
+  const isHydrated = useIsHydrated();
+  const storedForm = isHydrated ? loadOrderForm() ?? defaultOrderForm : defaultOrderForm;
   const [draftForm, setDraftForm] = useState<OrderFormData>(defaultOrderForm);
   const [hasDraftChanges, setHasDraftChanges] = useState(false);
   const [isSubmitting, setIsSubmitting] = useState(false);
@@ -359,14 +361,11 @@ export function OrderEntryPage() {
 }
 
 export function PreviewPage() {
-  const form = useHydratedValue(
-    () => loadOrderForm() ?? defaultOrderForm,
-    () => defaultOrderForm
-  );
-  const preview = useHydratedValue(
-    () => loadOrderPreview() ?? buildMockPreview(loadOrderForm() ?? defaultOrderForm),
-    () => buildMockPreview(defaultOrderForm)
-  );
+  const isHydrated = useIsHydrated();
+  const form = isHydrated ? loadOrderForm() ?? defaultOrderForm : defaultOrderForm;
+  const preview = isHydrated
+    ? loadOrderPreview() ?? buildMockPreview(form)
+    : buildMockPreview(defaultOrderForm);
 
   const selectedDrone = preview.availableDrones.find((drone) => drone.id === preview.droneId);
 
@@ -483,17 +482,17 @@ export function PreviewPage() {
 }
 
 export function ConfirmPage() {
-  const order = useHydratedValue(
-    () => {
-      const form = loadOrderForm() ?? defaultOrderForm;
-      const preview = loadOrderPreview() ?? buildMockPreview(form);
-      return {
-        ...buildMockOrder(form),
-        preview,
-      };
-    },
-    () => defaultMockOrder
-  );
+  const isHydrated = useIsHydrated();
+  const order = isHydrated
+    ? (() => {
+        const form = loadOrderForm() ?? defaultOrderForm;
+        const preview = loadOrderPreview() ?? buildMockPreview(form);
+        return {
+          ...buildMockOrder(form),
+          preview,
+        };
+      })()
+    : defaultMockOrder;
 
   const handleCreateOrder = () => {
     saveTrackingOrder(order);
@@ -598,10 +597,8 @@ export function ConfirmPage() {
 }
 
 export function TrackingPage({ orderId }: { orderId: string }) {
-  const order = useHydratedValue(
-    () => loadTrackingOrder(orderId) ?? defaultMockOrder,
-    () => defaultMockOrder
-  );
+  const isHydrated = useIsHydrated();
+  const order = isHydrated ? loadTrackingOrder(orderId) ?? defaultMockOrder : defaultMockOrder;
 
   return (
     <div className="page-shell">

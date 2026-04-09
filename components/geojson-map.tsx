@@ -114,7 +114,7 @@ export function GeoJsonMap({ preview }: { preview: PreviewResult }) {
           ref={mapRef}
           mapLib={maplibregl}
           initialViewState={initialViewState}
-          style={{ width: "100%", height: "100%" }}
+          style={{ width: "100%", height: "420px" }}
           mapStyle="https://basemaps.cartocdn.com/gl/voyager-gl-style/style.json"
           onLoad={() => {
             if (!mapRef.current || !bounds) {
