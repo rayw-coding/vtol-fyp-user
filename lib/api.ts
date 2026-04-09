@@ -1,4 +1,3 @@
-import { buildMockPreview } from "@/lib/mock-order";
 import { OrderFormData, PreviewResult } from "@/lib/types";
 
 const API_BASE_URL =
@@ -47,7 +46,8 @@ export async function fetchOrderPreview(form: OrderFormData): Promise<PreviewRes
     const json = (await response.json()) as { success: boolean; data: PreviewResult };
     return json.data;
   } catch (error) {
-    console.warn("Falling back to mock preview:", error);
-    return buildMockPreview(form);
+    throw error instanceof Error
+      ? error
+      : new Error("Failed to fetch preview from backend API");
   }
 }

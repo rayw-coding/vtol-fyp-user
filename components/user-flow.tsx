@@ -1,7 +1,8 @@
 "use client";
 
 import Link from "next/link";
-import { useMemo, useState } from "react";
+import { useState, useSyncExternalStore } from "react";
+import { GeoJsonMap } from "@/components/geojson-map";
 import { fetchOrderPreview } from "@/lib/api";
 import {
   buildMockOrder,
@@ -19,7 +20,6 @@ import {
 } from "@/lib/storage";
 import {
   DroneOption,
-  MockOrder,
   OrderFormData,
   PreviewResult,
   TrackingStep,
@@ -38,6 +38,12 @@ const priorityOptions = [
   { value: "urgent", label: "Urgent" },
   { value: "critical", label: "Critical" },
 ] as const;
+
+const subscribeToStorage = () => () => {};
+
+function useHydratedValue<T>(getClientValue: () => T, getServerValue: () => T): T {
+  return useSyncExternalStore(subscribeToStorage, getClientValue, getServerValue);
+}
 
 function SiteHeader({ currentPath }: { currentPath: string }) {
   const navItems = [
@@ -68,96 +74,7 @@ function SiteHeader({ currentPath }: { currentPath: string }) {
 }
 
 function RouteMapPreview({ preview }: { preview: PreviewResult }) {
-  const lineSegments = useMemo(() => {
-    return preview.routePoints.slice(0, -1).map((point, index) => {
-      const nextPoint = preview.routePoints[index + 1];
-      const deltaX = nextPoint.x - point.x;
-      const deltaY = nextPoint.y - point.y;
-      const length = Math.sqrt(deltaX ** 2 + deltaY ** 2);
-      const angle = Math.atan2(deltaY, deltaX) * (180 / Math.PI);
-
-      return {
-        id: `${point.id}-${nextPoint.id}`,
-        left: point.x,
-        top: point.y,
-        width: length,
-        angle,
-      };
-    });
-  }, [preview.routePoints]);
-
-  return (
-    <div className="map-card">
-      <div className="chip-row" style={{ marginBottom: 16 }}>
-        <span className="chip">Preview map</span>
-        <span className={`tag ${preview.noFlyCheckPassed ? "success" : "danger"}`}>
-          {preview.noFlyCheckPassed ? "No-fly check passed" : "No-fly conflict"}
-        </span>
-        <span className={`tag ${preview.riskLevel === "low" ? "success" : "warning"}`}>
-          Risk {preview.riskLevel}
-        </span>
-      </div>
-      <h3>Route preview</h3>
-      <p className="panel-subtle">
-        Mock map UI for now. Later you can render the real `GeoJSON` returned by your
-        backend.
-      </p>
-
-      <div className="map-placeholder">
-        <div className="map-grid" />
-
-        {preview.blockedZones.map((zone) => (
-          <div
-            key={zone.id}
-            className="map-zone"
-            style={{
-              left: `${zone.left}%`,
-              top: `${zone.top}%`,
-              width: `${zone.width}%`,
-              height: `${zone.height}%`,
-            }}
-          />
-        ))}
-
-        {lineSegments.map((segment) => (
-          <div
-            key={segment.id}
-            className="map-line"
-            style={{
-              left: `${segment.left}%`,
-              top: `${segment.top}%`,
-              width: `${segment.width}%`,
-              transform: `rotate(${segment.angle}deg)`,
-            }}
-          />
-        ))}
-
-        {preview.routePoints.map((point) => (
-          <div
-            key={point.id}
-            className={`map-point ${point.role}`}
-            style={{ left: `${point.x}%`, top: `${point.y}%` }}
-            title={point.label}
-          />
-        ))}
-
-        <div className="map-callout">
-          <strong>{preview.droneId}</strong>
-          <p style={{ margin: "8px 0 10px", color: "var(--muted)" }}>
-            {preview.droneModel} with {preview.batteryLevel}% battery is the best candidate
-            in this mock preview.
-          </p>
-          <div className="chip-row">
-            {preview.routePoints.map((point) => (
-              <span className="chip" key={point.id}>
-                {point.label}
-              </span>
-            ))}
-          </div>
-        </div>
-      </div>
-    </div>
-  );
+  return <GeoJsonMap preview={preview} />;
 }
 
 function DroneCard({ drone, selected }: { drone: DroneOption; selected: boolean }) {
@@ -200,12 +117,19 @@ function TrackingTimeline({ steps }: { steps: TrackingStep[] }) {
 }
 
 export function OrderEntryPage() {
-  const [form, setForm] = useState<OrderFormData>(() => loadOrderForm() ?? defaultOrderForm);
+  const storedForm = useHydratedValue(
+    () => loadOrderForm() ?? defaultOrderForm,
+    () => defaultOrderForm
+  );
+  const [draftForm, setDraftForm] = useState<OrderFormData>(defaultOrderForm);
+  const [hasDraftChanges, setHasDraftChanges] = useState(false);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [submitError, setSubmitError] = useState<string | null>(null);
+  const form = hasDraftChanges ? draftForm : storedForm;
 
   const updateField = <K extends keyof OrderFormData>(key: K, value: OrderFormData[K]) => {
-    setForm((current) => ({
+    setHasDraftChanges(true);
+    setDraftForm((current) => ({
       ...current,
       [key]: value,
     }));
@@ -415,7 +339,8 @@ export function OrderEntryPage() {
                 <button
                   className="secondary-button"
                   onClick={() => {
-                    setForm(defaultOrderForm);
+                    setHasDraftChanges(true);
+                    setDraftForm(defaultOrderForm);
                     saveOrderForm(defaultOrderForm);
                   }}
                   type="button"
@@ -434,8 +359,14 @@ export function OrderEntryPage() {
 }
 
 export function PreviewPage() {
-  const [form] = useState<OrderFormData>(() => loadOrderForm() ?? defaultOrderForm);
-  const [preview] = useState<PreviewResult>(() => loadOrderPreview() ?? buildMockPreview(form));
+  const form = useHydratedValue(
+    () => loadOrderForm() ?? defaultOrderForm,
+    () => defaultOrderForm
+  );
+  const preview = useHydratedValue(
+    () => loadOrderPreview() ?? buildMockPreview(loadOrderForm() ?? defaultOrderForm),
+    () => buildMockPreview(defaultOrderForm)
+  );
 
   const selectedDrone = preview.availableDrones.find((drone) => drone.id === preview.droneId);
 
@@ -552,17 +483,17 @@ export function PreviewPage() {
 }
 
 export function ConfirmPage() {
-  const [order] = useState<MockOrder>(() => {
-    const form = loadOrderForm() ?? defaultOrderForm;
-    const preview = loadOrderPreview() ?? buildMockPreview(form);
-    const nextOrder = {
-      ...buildMockOrder(form),
-      preview,
-    };
-
-    saveOrderPreview(preview);
-    return nextOrder;
-  });
+  const order = useHydratedValue(
+    () => {
+      const form = loadOrderForm() ?? defaultOrderForm;
+      const preview = loadOrderPreview() ?? buildMockPreview(form);
+      return {
+        ...buildMockOrder(form),
+        preview,
+      };
+    },
+    () => defaultMockOrder
+  );
 
   const handleCreateOrder = () => {
     saveTrackingOrder(order);
@@ -667,16 +598,10 @@ export function ConfirmPage() {
 }
 
 export function TrackingPage({ orderId }: { orderId: string }) {
-  const [order] = useState<MockOrder>(() => {
-    const stored = loadTrackingOrder(orderId);
-    if (stored) {
-      return stored;
-    }
-
-    const fallback = buildMockOrder(defaultOrderForm);
-    saveTrackingOrder(fallback);
-    return fallback;
-  });
+  const order = useHydratedValue(
+    () => loadTrackingOrder(orderId) ?? defaultMockOrder,
+    () => defaultMockOrder
+  );
 
   return (
     <div className="page-shell">

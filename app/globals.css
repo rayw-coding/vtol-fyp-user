@@ -385,6 +385,14 @@ textarea {
   padding: 22px;
 }
 
+.map-live-shell {
+  position: relative;
+  overflow: hidden;
+  min-height: 420px;
+  border-radius: 20px;
+  border: 1px solid var(--border);
+}
+
 .map-placeholder {
   position: relative;
   overflow: hidden;
@@ -456,6 +464,35 @@ textarea {
   background: rgba(255, 255, 255, 0.96);
   border: 1px solid var(--border);
   padding: 14px;
+}
+
+.map-callout-floating {
+  z-index: 2;
+}
+
+.geo-marker {
+  width: 16px;
+  height: 16px;
+  border-radius: 999px;
+  border: 3px solid #fff;
+  box-shadow: 0 0 0 4px rgba(21, 94, 239, 0.15);
+}
+
+.geo-marker.pickup {
+  background: var(--success);
+}
+
+.geo-marker.dropoff {
+  background: var(--danger);
+}
+
+.geo-marker.waypoint {
+  background: var(--primary);
+}
+
+.map-popup {
+  min-width: 92px;
+  font-size: 0.88rem;
 }
 
 .info-grid {
