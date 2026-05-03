@@ -138,6 +138,11 @@ export function buildMockPreview(form: OrderFormData): PreviewResult {
     ] satisfies GeoJsonFeature[],
   };
 
+  const noFlyZonesGeoJson: PreviewResult["noFlyZonesGeoJson"] = {
+    type: "FeatureCollection" as const,
+    features: [],
+  };
+
   return {
     canDeliver: true,
     noFlyCheckPassed: true,
@@ -153,6 +158,7 @@ export function buildMockPreview(form: OrderFormData): PreviewResult {
       "This first-pass preview assumes one available drone and a safe reroute around current restricted airspace.",
     availableDrones,
     routeGeoJson,
+    noFlyZonesGeoJson,
     routePoints,
     blockedZones,
     checklist: [

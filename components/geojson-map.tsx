@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useRef } from "react";
+import { useMemo, useRef, useState } from "react";
 import Map, {
   Layer,
   Marker,
@@ -51,11 +51,11 @@ function getFeatureCenter(feature: GeoJsonFeature): [number, number] | null {
 
 export function GeoJsonMap({ preview }: { preview: PreviewResult }) {
   const mapRef = useRef<MapRef | null>(null);
+  const [showNoFlyZones, setShowNoFlyZones] = useState(true);
 
   const bounds = useMemo(() => {
-    const allCoordinates = preview.routeGeoJson.features.flatMap((feature) =>
-      flattenCoordinates(feature.geometry.coordinates)
-    );
+    const allCoordinates = [...preview.routeGeoJson.features, ...preview.noFlyZonesGeoJson.features]
+      .flatMap((feature) => flattenCoordinates(feature.geometry.coordinates));
 
     if (allCoordinates.length === 0) {
       return null;
@@ -79,6 +79,35 @@ export function GeoJsonMap({ preview }: { preview: PreviewResult }) {
       ),
     [preview.routeGeoJson.features]
   );
+
+  const hasNoFlyZones = preview.noFlyZonesGeoJson.features.some(
+    (feature) => feature.geometry.type === "Polygon" || feature.geometry.type === "MultiPolygon"
+  );
+
+  const noFlySummary = useMemo(() => {
+    const polygonFeatures = preview.noFlyZonesGeoJson.features.filter(
+      (feature) => feature.geometry.type === "Polygon" || feature.geometry.type === "MultiPolygon"
+    );
+
+    return {
+      aircraftCurrent: polygonFeatures.filter(
+        (feature) => String(feature.properties.type ?? "") === "aircraft_no_fly_zone"
+      ).length,
+      aircraftPredicted: polygonFeatures.filter(
+        (feature) =>
+          String(feature.properties.type ?? "") === "aircraft_predicted_no_fly_zone" ||
+          String(feature.properties.type ?? "") === "aircraft_predicted_path_buffer"
+      ).length,
+      fixed: polygonFeatures.filter((feature) => {
+        const type = String(feature.properties.type ?? "");
+        return (
+          type !== "aircraft_no_fly_zone" &&
+          type !== "aircraft_predicted_no_fly_zone" &&
+          type !== "aircraft_predicted_path_buffer"
+        );
+      }).length,
+    };
+  }, [preview.noFlyZonesGeoJson.features]);
 
   const initialViewState = useMemo(() => {
     if (!bounds) {
@@ -105,9 +134,40 @@ export function GeoJsonMap({ preview }: { preview: PreviewResult }) {
       </div>
       <h3>Route preview</h3>
       <p className="panel-subtle">
-        Live map rendered from backend `GeoJSON`, including the Python-generated route and
-        pickup/dropoff markers.
+        Live map rendered from GeoJSON returned by your Python planner, including the route,
+        pickup/dropoff markers, and visible no-fly overlays.
       </p>
+      {hasNoFlyZones ? (
+        <p className="panel-subtle" style={{ marginTop: 8 }}>
+          The orange circles come from predicted aircraft no-fly zones over time. Each circle is
+          one future aircraft position safety buffer, so long chains of circles mean the plane
+          forecast spans multiple timestamps.
+        </p>
+      ) : null}
+      <div className="chip-row" style={{ margin: "12px 0 16px" }}>
+        <button
+          className="secondary-button"
+          onClick={() => setShowNoFlyZones((current) => !current)}
+          type="button"
+        >
+          {showNoFlyZones ? "Hide no-fly zones" : "Show no-fly zones"}
+        </button>
+        {hasNoFlyZones ? (
+          <>
+            {noFlySummary.aircraftCurrent > 0 ? (
+              <span className="chip">Current aircraft zones {noFlySummary.aircraftCurrent}</span>
+            ) : null}
+            {noFlySummary.aircraftPredicted > 0 ? (
+              <span className="chip">Predicted zones {noFlySummary.aircraftPredicted}</span>
+            ) : null}
+            {noFlySummary.fixed > 0 ? (
+              <span className="chip">Fixed zones {noFlySummary.fixed}</span>
+            ) : null}
+          </>
+        ) : (
+          <span className="chip">No no-fly polygons returned</span>
+        )}
+      </div>
 
       <div className="map-live-shell">
         <Map
@@ -134,6 +194,68 @@ export function GeoJsonMap({ preview }: { preview: PreviewResult }) {
           }}
         >
           <NavigationControl position="top-right" />
+
+          {showNoFlyZones ? (
+            <Source id="no-fly-source" type="geojson" data={preview.noFlyZonesGeoJson}>
+              <Layer
+                id="no-fly-fill"
+                type="fill"
+                filter={[
+                  "any",
+                  ["==", ["geometry-type"], "Polygon"],
+                  ["==", ["geometry-type"], "MultiPolygon"],
+                ]}
+                paint={{
+                  "fill-color": [
+                    "match",
+                    ["get", "type"],
+                    "aircraft_no_fly_zone",
+                    "#ef4444",
+                    "aircraft_predicted_no_fly_zone",
+                    "#f97316",
+                    "aircraft_predicted_path_buffer",
+                    "#fb923c",
+                    "#7c3aed",
+                  ],
+                  "fill-opacity": [
+                    "match",
+                    ["get", "type"],
+                    "aircraft_no_fly_zone",
+                    0.18,
+                    "aircraft_predicted_no_fly_zone",
+                    0.12,
+                    "aircraft_predicted_path_buffer",
+                    0.1,
+                    0.12,
+                  ],
+                }}
+              />
+              <Layer
+                id="no-fly-outline"
+                type="line"
+                filter={[
+                  "any",
+                  ["==", ["geometry-type"], "Polygon"],
+                  ["==", ["geometry-type"], "MultiPolygon"],
+                ]}
+                paint={{
+                  "line-color": [
+                    "match",
+                    ["get", "type"],
+                    "aircraft_no_fly_zone",
+                    "#dc2626",
+                    "aircraft_predicted_no_fly_zone",
+                    "#ea580c",
+                    "aircraft_predicted_path_buffer",
+                    "#f97316",
+                    "#6d28d9",
+                  ],
+                  "line-width": 2,
+                  "line-opacity": 0.7,
+                }}
+              />
+            </Source>
+          ) : null}
 
           <Source id="route-source" type="geojson" data={preview.routeGeoJson}>
             <Layer
@@ -205,6 +327,11 @@ export function GeoJsonMap({ preview }: { preview: PreviewResult }) {
             <span className="chip">{preview.distanceKm} km</span>
             <span className="chip">{preview.etaMinutes} min</span>
             <span className="chip">HK${preview.priceHkd}</span>
+            {hasNoFlyZones ? (
+              <span className="chip">
+                No-fly overlays {showNoFlyZones ? "visible" : "hidden"}
+              </span>
+            ) : null}
           </div>
         </div>
       </div>

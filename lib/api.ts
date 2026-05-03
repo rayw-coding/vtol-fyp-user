@@ -1,7 +1,6 @@
 import { OrderFormData, PreviewResult } from "@/lib/types";
 
-const API_BASE_URL =
-  process.env.NEXT_PUBLIC_API_BASE_URL?.replace(/\/$/, "") ?? "http://localhost:4000";
+const API_BASE_URL = process.env.NEXT_PUBLIC_API_BASE_URL?.replace(/\/$/, "") ?? "";
 
 function toNumber(value: string, fallback: number) {
   const parsed = Number(value);
@@ -25,7 +24,9 @@ export async function fetchOrderPreview(form: OrderFormData): Promise<PreviewRes
   };
 
   try {
-    const response = await fetch(`${API_BASE_URL}/api/preview`, {
+    const previewUrl = API_BASE_URL ? `${API_BASE_URL}/api/preview` : "/api/preview";
+
+    const response = await fetch(previewUrl, {
       method: "POST",
       headers: {
         "Content-Type": "application/json",

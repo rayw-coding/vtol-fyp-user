@@ -39,7 +39,43 @@ const priorityOptions = [
   { value: "critical", label: "Critical" },
 ] as const;
 
+const hkPlannerBounds = {
+  minLng: 113.75,
+  maxLng: 114.5,
+  minLat: 22.15,
+  maxLat: 22.6,
+} as const;
+
 const subscribeToStorage = () => () => {};
+
+function validateCoordinates(form: OrderFormData) {
+  const pickupLat = Number(form.pickupLat);
+  const pickupLng = Number(form.pickupLng);
+  const dropoffLat = Number(form.dropoffLat);
+  const dropoffLng = Number(form.dropoffLng);
+
+  if (![pickupLat, pickupLng, dropoffLat, dropoffLng].every(Number.isFinite)) {
+    return "Please enter numeric pickup/dropoff latitude and longitude values.";
+  }
+
+  const inRange = (value: number, min: number, max: number) => value >= min && value <= max;
+  if (
+    !inRange(pickupLat, hkPlannerBounds.minLat, hkPlannerBounds.maxLat) ||
+    !inRange(dropoffLat, hkPlannerBounds.minLat, hkPlannerBounds.maxLat) ||
+    !inRange(pickupLng, hkPlannerBounds.minLng, hkPlannerBounds.maxLng) ||
+    !inRange(dropoffLng, hkPlannerBounds.minLng, hkPlannerBounds.maxLng)
+  ) {
+    const swapHint =
+      inRange(pickupLng, hkPlannerBounds.minLat, hkPlannerBounds.maxLat) ||
+      inRange(dropoffLng, hkPlannerBounds.minLat, hkPlannerBounds.maxLat)
+        ? " The longitude field looks like it may contain a latitude value."
+        : "";
+
+    return `Coordinates must stay inside the Hong Kong planner bounds: latitude ${hkPlannerBounds.minLat}-${hkPlannerBounds.maxLat}, longitude ${hkPlannerBounds.minLng}-${hkPlannerBounds.maxLng}.${swapHint}`;
+  }
+
+  return null;
+}
 
 function useIsHydrated(): boolean {
   return useSyncExternalStore(
@@ -138,6 +174,12 @@ export function OrderEntryPage() {
   };
 
   const handlePreview = async () => {
+    const coordinateError = validateCoordinates(form);
+    if (coordinateError) {
+      setSubmitError(coordinateError);
+      return;
+    }
+
     setIsSubmitting(true);
     setSubmitError(null);
 
@@ -176,7 +218,7 @@ export function OrderEntryPage() {
               </div>
               <div className="info-card">
                 <span>Next action</span>
-                <strong>Generate preview and pricing with backend later</strong>
+                <strong>Generate preview and pricing with the Python planner</strong>
               </div>
             </div>
           </section>
@@ -190,8 +232,8 @@ export function OrderEntryPage() {
               <span className="step-pill">4. Track</span>
             </div>
             <p className="panel-subtle">
-              First, users fill in the order form. The preview page now calls the backend
-              API for available drones, ETA, price, GeoJSON path, and route safety.
+              First, users fill in the order form. The preview page now calls the local API,
+              which runs your Python route planner and returns GeoJSON for the live map.
             </p>
           </aside>
         </div>
@@ -376,7 +418,7 @@ export function PreviewPage() {
         <div className="section-heading">
           <h2>Route preview and quotation</h2>
           <p>
-            Live backend preview response, including available drones, estimated time,
+            Python-backed preview response, including available drones, estimated time,
             pricing, GeoJSON route data, and no-fly validation.
           </p>
         </div>
@@ -425,8 +467,8 @@ export function PreviewPage() {
                   </div>
                 </div>
                 <p className="helper-text" style={{ marginTop: 16 }}>
-                  GeoJSON feature count: {preview.routeGeoJson.features.length}. Later this
-                  can come directly from your Python-backed planner.
+                  GeoJSON feature count: {preview.routeGeoJson.features.length}. This route is
+                  now generated through your Python planner pipeline.
                 </p>
               </div>
             </div>

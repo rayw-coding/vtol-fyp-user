@@ -45,10 +45,12 @@ export type RoutePoint = {
   y: number;
 };
 
+export type GeoJsonProperties = Record<string, string | number | boolean>;
+
 export type GeoJsonFeature =
   | {
       type: "Feature";
-      properties: Record<string, string | number | boolean>;
+      properties: GeoJsonProperties;
       geometry: {
         type: "LineString";
         coordinates: number[][];
@@ -56,12 +58,33 @@ export type GeoJsonFeature =
     }
   | {
       type: "Feature";
-      properties: Record<string, string | number | boolean>;
+      properties: GeoJsonProperties;
       geometry: {
         type: "Point";
         coordinates: number[];
       };
+    }
+  | {
+      type: "Feature";
+      properties: GeoJsonProperties;
+      geometry: {
+        type: "Polygon";
+        coordinates: number[][][];
+      };
+    }
+  | {
+      type: "Feature";
+      properties: GeoJsonProperties;
+      geometry: {
+        type: "MultiPolygon";
+        coordinates: number[][][][];
+      };
     };
+
+export type GeoJsonFeatureCollection = {
+  type: "FeatureCollection";
+  features: GeoJsonFeature[];
+};
 
 export type PreviewResult = {
   canDeliver: boolean;
@@ -76,10 +99,8 @@ export type PreviewResult = {
   riskLevel: "low" | "medium" | "high";
   summary: string;
   availableDrones: DroneOption[];
-  routeGeoJson: {
-    type: "FeatureCollection";
-    features: GeoJsonFeature[];
-  };
+  routeGeoJson: GeoJsonFeatureCollection;
+  noFlyZonesGeoJson: GeoJsonFeatureCollection;
   routePoints: RoutePoint[];
   blockedZones: Array<{
     id: string;

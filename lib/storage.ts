@@ -31,6 +31,16 @@ function writeJson<T>(key: string, value: T) {
   window.localStorage.setItem(key, JSON.stringify(value));
 }
 
+function withPreviewDefaults(preview: PreviewResult): PreviewResult {
+  return {
+    ...preview,
+    noFlyZonesGeoJson: preview.noFlyZonesGeoJson ?? {
+      type: "FeatureCollection",
+      features: [],
+    },
+  };
+}
+
 export function saveOrderForm(form: OrderFormData) {
   writeJson(ORDER_FORM_KEY, form);
 }
@@ -40,17 +50,29 @@ export function loadOrderForm() {
 }
 
 export function saveOrderPreview(preview: PreviewResult) {
-  writeJson(ORDER_PREVIEW_KEY, preview);
+  writeJson(ORDER_PREVIEW_KEY, withPreviewDefaults(preview));
 }
 
 export function loadOrderPreview() {
-  return readJson<PreviewResult>(ORDER_PREVIEW_KEY);
+  const preview = readJson<PreviewResult>(ORDER_PREVIEW_KEY);
+  return preview ? withPreviewDefaults(preview) : null;
 }
 
 export function saveTrackingOrder(order: MockOrder) {
-  writeJson(`${ORDER_TRACKING_KEY}:${order.id}`, order);
+  writeJson(`${ORDER_TRACKING_KEY}:${order.id}`, {
+    ...order,
+    preview: withPreviewDefaults(order.preview),
+  });
 }
 
 export function loadTrackingOrder(orderId: string) {
-  return readJson<MockOrder>(`${ORDER_TRACKING_KEY}:${orderId}`);
+  const order = readJson<MockOrder>(`${ORDER_TRACKING_KEY}:${orderId}`);
+  if (!order) {
+    return null;
+  }
+
+  return {
+    ...order,
+    preview: withPreviewDefaults(order.preview),
+  };
 }
