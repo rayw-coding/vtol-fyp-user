@@ -263,7 +263,11 @@ def getAirplane(input_geojson, output_geojson):
 
 
 if __name__ == "__main__":
+    _script_dir = os.path.dirname(os.path.abspath(__file__))
     if len(sys.argv) >= 3:
         getAirplane(sys.argv[1], sys.argv[2])
     else:
-        getAirplane('mapNew.geojson', 'PlaneDataMap/my_aircraft_data.geojson')
+        _default_in = os.path.join(_script_dir, "data", "fixed-zones.empty.geojson")
+        _default_out = os.path.join(_script_dir, "PlaneDataMap", "my_aircraft_data.geojson")
+        os.makedirs(os.path.dirname(_default_out), exist_ok=True)
+        getAirplane(_default_in, _default_out)

@@ -152,6 +152,7 @@ def plan_uav_path(start, goal, fixdatamap, airplanemap, output_file, max_distanc
     return None
 
 if __name__ == "__main__":
+    _script_dir = os.path.dirname(os.path.abspath(__file__))
     if len(sys.argv) >= 9:
         result = plan_uav_path(
             (float(sys.argv[1]), float(sys.argv[2])),
@@ -162,12 +163,15 @@ if __name__ == "__main__":
             float(sys.argv[8])
         )
     else:
-        result=plan_uav_path(
+        _fix = os.path.join(_script_dir, "data", "fixed-zones.empty.geojson")
+        _air = os.path.join(_script_dir, "data", "aircraft.empty.geojson")
+        _out = os.path.join(_script_dir, "uav1_path.geojson")
+        result = plan_uav_path(
             (114.26947779768864, 22.318652131053497),
             (114.17612038247337, 22.36972550862899),
-            'mapNew.geojson',
-            'PlaneDataMap/my_aircraft_data.geojson',
-            'uav1_path.geojson',
+            _fix,
+            _air,
+            _out,
             10
         )
     if result:
