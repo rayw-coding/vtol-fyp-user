@@ -1,0 +1,43 @@
+{
+  "type": "FeatureCollection",
+  "features": [
+    {
+      "type": "Feature",
+      "properties": {
+        "type": "fixed_demo",
+        "name": "Deploy sample no-fly A (use when mapNew is Git LFS pointer)"
+      },
+      "geometry": {
+        "type": "Polygon",
+        "coordinates": [
+          [
+            [114.12, 22.34],
+            [114.14, 22.34],
+            [114.14, 22.32],
+            [114.12, 22.32],
+            [114.12, 22.34]
+          ]
+        ]
+      }
+    },
+    {
+      "type": "Feature",
+      "properties": {
+        "type": "fixed_demo",
+        "name": "Deploy sample no-fly B"
+      },
+      "geometry": {
+        "type": "Polygon",
+        "coordinates": [
+          [
+            [114.2, 22.3],
+            [114.24, 22.3],
+            [114.24, 22.26],
+            [114.2, 22.26],
+            [114.2, 22.3]
+          ]
+        ]
+      }
+    }
+  ]
+}

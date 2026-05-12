@@ -276,6 +276,57 @@ function resolveFixedMapPath(workspaceRoot: string): string {
   return resolved;
 }
 
+const LFS_MARKER = "https://git-lfs.github.com/spec/v1";
+
+async function readFileHeadUtf8(filePath: string, maxBytes: number): Promise<string> {
+  const handle = await fs.open(filePath, "r");
+  try {
+    const buf = Buffer.alloc(Math.min(maxBytes, 512));
+    const { bytesRead } = await handle.read(buf, 0, buf.length, 0);
+    return buf.subarray(0, bytesRead).toString("utf8");
+  } finally {
+    await handle.close();
+  }
+}
+
+async function isGitLfsPointerFile(filePath: string): Promise<boolean> {
+  const head = await readFileHeadUtf8(filePath, 400);
+  return head.includes(LFS_MARKER);
+}
+
+/**
+ * Docker / CI often ships `mapNew.geojson` as a Git LFS pointer (no smudge), so JSON parse
+ * fails and no-fly overlays disappear on deploy. Swap to a tiny bundled GeoJSON for visibility.
+ */
+async function resolveEffectiveFixedMapPath(
+  workspaceRoot: string,
+  candidatePath: string
+): Promise<string> {
+  const samplePath = path.join(workspaceRoot, "data", "fixed-zones.deploy-sample.json");
+
+  const trySample = async (reason: string) => {
+    try {
+      await fs.access(samplePath);
+      console.warn(`[vtol preview] ${reason} Using bundled sample: ${samplePath}`);
+      return samplePath;
+    } catch {
+      console.warn(`[vtol preview] ${reason} Sample file missing; keeping ${candidatePath}`);
+      return candidatePath;
+    }
+  };
+
+  if (await isGitLfsPointerFile(candidatePath).catch(() => false)) {
+    return trySample(`Fixed map is a Git LFS pointer (real file not in image).`);
+  }
+
+  const head = await readFileHeadUtf8(candidatePath, 400).catch(() => "");
+  if (head.trimStart().startsWith("version ") && head.includes("git-lfs")) {
+    return trySample(`Fixed map looks like a Git LFS pointer.`);
+  }
+
+  return candidatePath;
+}
+
 export async function generatePythonPreview(payload: Record<string, unknown>) {
   const workspaceRoot = getWorkspaceRoot();
   const form = normalizeFormData(payload);
@@ -301,6 +352,8 @@ export async function generatePythonPreview(payload: Record<string, unknown>) {
       );
     }
   }
+
+  fixedMapPath = await resolveEffectiveFixedMapPath(workspaceRoot, fixedMapPath);
 
   const tempDir = path.join(os.tmpdir(), "vtol-fyp-user");
   const requestId = `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
