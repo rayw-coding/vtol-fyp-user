@@ -78,11 +78,13 @@ function slimPreviewForStorage(preview: PreviewResult): PreviewResult {
   };
 }
 
-/** Route-only GeoJSON: keep line + a few markers, drop huge geometries if any. */
+/** Route-only GeoJSON: keep line + markers; LineString first so slim cache still draws a path. */
 function trimRouteGeoJsonForStorage(preview: PreviewResult): PreviewResult["routeGeoJson"] {
   const fc = preview.routeGeoJson;
   const maxFeatures = 12;
-  const features = fc.features.slice(0, maxFeatures);
+  const lineStrings = fc.features.filter((f) => f.geometry.type === "LineString");
+  const rest = fc.features.filter((f) => f.geometry.type !== "LineString");
+  const features = [...lineStrings, ...rest].slice(0, maxFeatures);
   return { type: "FeatureCollection", features };
 }
 

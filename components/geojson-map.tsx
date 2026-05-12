@@ -326,7 +326,6 @@ export function GeoJsonMap({ preview }: { preview: PreviewResult }) {
           <div className="chip-row">
             <span className="chip">{preview.distanceKm} km</span>
             <span className="chip">{preview.etaMinutes} min</span>
-            <span className="chip">HK${preview.priceHkd}</span>
             {hasNoFlyZones ? (
               <span className="chip">
                 No-fly overlays {showNoFlyZones ? "visible" : "hidden"}

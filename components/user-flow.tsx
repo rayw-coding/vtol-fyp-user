@@ -1,8 +1,9 @@
 "use client";
 
 import Link from "next/link";
-import { useState, useSyncExternalStore } from "react";
+import { useCallback, useEffect, useState, useSyncExternalStore } from "react";
 import { GeoJsonMap } from "@/components/geojson-map";
+import { OrderLocationMapPicker } from "@/components/order-location-map";
 import { fetchOrderPreview } from "@/lib/api";
 import {
   buildMockOrder,
@@ -173,6 +174,17 @@ export function OrderEntryPage() {
     }));
   };
 
+  const patchForm = useCallback(
+    (patch: Partial<OrderFormData>) => {
+      setHasDraftChanges(true);
+      setDraftForm((current) => {
+        const base = hasDraftChanges ? current : { ...storedForm };
+        return { ...base, ...patch };
+      });
+    },
+    [hasDraftChanges, storedForm]
+  );
+
   const handlePreview = async () => {
     const coordinateError = validateCoordinates(form);
     if (coordinateError) {
@@ -205,11 +217,10 @@ export function OrderEntryPage() {
               <span className="badge">User page MVP</span>
               <span className="badge">Step 1 of 4</span>
             </div>
-            <h1>Order medicine delivery with your drone frontend skeleton.</h1>
+            <h1>Book a VTOL medicine delivery in Hong Kong.</h1>
             <p>
-              This homepage is also the order page. Users can input pickup and dropoff
-              details, medicine type, payload, contact info, and urgency before moving to
-              preview.
+              Enter pickup and drop-off, set coordinates by hand or on the map, then preview
+              the route before confirming your order.
             </p>
             <div className="hero-list">
               <div className="info-card">
@@ -218,7 +229,7 @@ export function OrderEntryPage() {
               </div>
               <div className="info-card">
                 <span>Next action</span>
-                <strong>Generate preview and pricing with the Python planner</strong>
+                <strong>Generate route preview with the Python planner</strong>
               </div>
             </div>
           </section>
@@ -232,8 +243,8 @@ export function OrderEntryPage() {
               <span className="step-pill">4. Track</span>
             </div>
             <p className="panel-subtle">
-              First, users fill in the order form. The preview page now calls the local API,
-              which runs your Python route planner and returns GeoJSON for the live map.
+              Use the form and optional map picker, then continue to preview. The preview step
+              calls the API to run the Python planner and show the route on a map.
             </p>
           </aside>
         </div>
@@ -241,7 +252,10 @@ export function OrderEntryPage() {
         <section className="section">
           <div className="section-heading">
             <h2>Order form</h2>
-            <p>Use this as your main user-facing form before connecting the real backend.</p>
+            <p>
+              Coordinates can be typed below or placed on the map. Both stay within the Hong Kong
+              planner bounds.
+            </p>
           </div>
 
           <div className="panel form-panel-wide">
@@ -317,6 +331,18 @@ export function OrderEntryPage() {
                     onChange={(event) => updateField("dropoffLng", event.target.value)}
                   />
                 </div>
+              </div>
+
+              <div className="field" style={{ gridColumn: "1 / -1" }}>
+                <label htmlFor="order-map-picker">Pickup &amp; dropoff on map</label>
+                <OrderLocationMapPicker
+                  dropoffLat={form.dropoffLat}
+                  dropoffLng={form.dropoffLng}
+                  onPlaceDropoff={(lat, lng) => patchForm({ dropoffLat: lat, dropoffLng: lng })}
+                  onPlacePickup={(lat, lng) => patchForm({ pickupLat: lat, pickupLng: lng })}
+                  pickupLat={form.pickupLat}
+                  pickupLng={form.pickupLng}
+                />
               </div>
 
               <div className="field-grid">
@@ -405,9 +431,52 @@ export function OrderEntryPage() {
 export function PreviewPage() {
   const isHydrated = useIsHydrated();
   const form = isHydrated ? loadOrderForm() ?? defaultOrderForm : defaultOrderForm;
-  const preview = isHydrated
+  const [livePreview, setLivePreview] = useState<PreviewResult | null>(null);
+  const [refetchLoading, setRefetchLoading] = useState(false);
+  const [refetchError, setRefetchError] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (!isHydrated) {
+      return;
+    }
+
+    const orderForm = loadOrderForm() ?? defaultOrderForm;
+    let cancelled = false;
+
+    setRefetchLoading(true);
+    setRefetchError(null);
+
+    void fetchOrderPreview(orderForm)
+      .then((data) => {
+        if (cancelled) {
+          return;
+        }
+        setLivePreview(data);
+        saveOrderPreview(data);
+      })
+      .catch((error) => {
+        if (cancelled) {
+          return;
+        }
+        setRefetchError(
+          error instanceof Error ? error.message : "Failed to refresh preview from server"
+        );
+      })
+      .finally(() => {
+        if (!cancelled) {
+          setRefetchLoading(false);
+        }
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [isHydrated]);
+
+  const cachedPreview = isHydrated
     ? loadOrderPreview() ?? buildMockPreview(form)
     : buildMockPreview(defaultOrderForm);
+  const preview = livePreview ?? cachedPreview;
 
   const selectedDrone = preview.availableDrones.find((drone) => drone.id === preview.droneId);
 
@@ -416,11 +485,21 @@ export function PreviewPage() {
       <SiteHeader currentPath="/preview" />
       <main className="container section">
         <div className="section-heading">
-          <h2>Route preview and quotation</h2>
+          <h2>Route preview</h2>
           <p>
             Python-backed preview response, including available drones, estimated time,
-            pricing, GeoJSON route data, and no-fly validation.
+            GeoJSON route data, and no-fly validation.
           </p>
+          {refetchLoading ? (
+            <p className="panel-subtle" style={{ marginTop: 12 }}>
+              Loading full route and no-fly overlays from the server…
+            </p>
+          ) : null}
+          {refetchError ? (
+            <p className="error-text" style={{ marginTop: 12 }}>
+              {refetchError} Showing cached preview if available.
+            </p>
+          ) : null}
         </div>
 
         <div className="preview-layout">
@@ -428,10 +507,6 @@ export function PreviewPage() {
             <div className="stat-card">
               <span>ETA</span>
               <strong>{preview.etaMinutes} min</strong>
-            </div>
-            <div className="stat-card">
-              <span>Estimated fee</span>
-              <strong>HK${preview.priceHkd}</strong>
             </div>
             <div className="stat-card">
               <span>Available drone</span>
@@ -583,7 +658,7 @@ export function ConfirmPage() {
               </div>
             </div>
             <div className="panel-divider" />
-            <h3>Route and quote</h3>
+            <h3>Route</h3>
             <div className="summary-grid">
               <div className="stat-card">
                 <span>Order ID</span>
@@ -596,10 +671,6 @@ export function ConfirmPage() {
               <div className="stat-card">
                 <span>ETA</span>
                 <strong>{order.preview.etaMinutes} min</strong>
-              </div>
-              <div className="stat-card">
-                <span>Fee</span>
-                <strong>HK${order.preview.priceHkd}</strong>
               </div>
             </div>
           </div>

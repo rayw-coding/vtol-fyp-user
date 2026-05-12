@@ -211,6 +211,20 @@ textarea {
   background: rgba(21, 94, 239, 0.08);
 }
 
+.secondary-button.is-active-toggle {
+  box-shadow: 0 0 0 2px var(--primary);
+  background: rgba(21, 94, 239, 0.14);
+}
+
+.order-map-picker {
+  margin-top: 4px;
+}
+
+.order-map-picker-shell {
+  border-radius: 16px;
+  overflow: hidden;
+}
+
 .link-button {
   display: inline-flex;
   align-items: center;
