@@ -451,7 +451,7 @@ export function PreviewPage() {
         if (cancelled) {
           return;
         }
-        setLivePreview(data);
+        setLivePreview(structuredClone(data));
         saveOrderPreview(data);
       })
       .catch((error) => {

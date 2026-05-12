@@ -3,6 +3,7 @@ import { promises as fs } from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { promisify } from "node:util";
+import deploySampleNoFlyData from "@/data/fixed-zones.deploy-sample.json";
 import { buildMockPreview } from "@/lib/mock-order";
 import type {
   GeoJsonFeature,
@@ -17,6 +18,9 @@ const EMPTY_FEATURE_COLLECTION: GeoJsonFeatureCollection = {
   type: "FeatureCollection",
   features: [],
 };
+
+/** Bundled with server JS so deploy always has real GeoJSON (Docker cwd / missing data/ files). */
+const DEPLOY_SAMPLE_NO_FLY = deploySampleNoFlyData as GeoJsonFeatureCollection;
 
 type PythonCandidate = {
   command: string;
@@ -210,31 +214,19 @@ function hasPolygonFeatures(fc: GeoJsonFeatureCollection): boolean {
   );
 }
 
-/** If deploy/LFS left merged zones empty, append small bundled polygons so the UI can render overlays. */
-async function mergeDeploySampleIfNoPolygons(
-  workspaceRoot: string,
-  merged: GeoJsonFeatureCollection
-): Promise<GeoJsonFeatureCollection> {
+/** If merged zones still have no polygons, append in-bundle sample (same as Python fallback). */
+function mergeDeploySampleIfNoPolygons(merged: GeoJsonFeatureCollection): GeoJsonFeatureCollection {
   if (hasPolygonFeatures(merged)) {
     return merged;
   }
-
-  const samplePath = path.join(workspaceRoot, "data", "fixed-zones.deploy-sample.json");
-  try {
-    const sample = await readFeatureCollection(samplePath);
-    if (!hasPolygonFeatures(sample)) {
-      return merged;
-    }
-    console.warn(
-      "[vtol preview] Merged no-fly zones had no polygons; appending data/fixed-zones.deploy-sample.json"
-    );
-    return {
-      type: "FeatureCollection",
-      features: [...merged.features, ...sample.features],
-    };
-  } catch {
+  if (!hasPolygonFeatures(DEPLOY_SAMPLE_NO_FLY)) {
     return merged;
   }
+  console.warn("[vtol preview] Merged no-fly zones had no polygons; appending in-bundle deploy sample.");
+  return {
+    type: "FeatureCollection",
+    features: [...merged.features, ...DEPLOY_SAMPLE_NO_FLY.features],
+  };
 }
 
 function getRouteCoordinates(routeGeoJson: PreviewResult["routeGeoJson"]) {
@@ -327,34 +319,36 @@ async function isGitLfsPointerFile(filePath: string): Promise<boolean> {
   return head.includes(LFS_MARKER);
 }
 
+async function writeBundledFixedMapToTemp(requestId: string): Promise<string> {
+  const dir = path.join(os.tmpdir(), "vtol-fyp-user");
+  const tmp = path.join(dir, `fixed-bundled-${requestId}.geojson`);
+  await fs.mkdir(dir, { recursive: true });
+  await fs.writeFile(tmp, JSON.stringify(DEPLOY_SAMPLE_NO_FLY), "utf8");
+  return tmp;
+}
+
 /**
- * Docker / CI often ships `mapNew.geojson` as a Git LFS pointer (no smudge), so JSON parse
- * fails and no-fly overlays disappear on deploy. Swap to a tiny bundled GeoJSON for visibility.
+ * When `mapNew.geojson` is a Git LFS pointer or unreadable JSON, Python must read a real file.
+ * Writes the in-bundle sample to /tmp (not dependent on `cwd` or `data/` on disk).
  */
-async function resolveEffectiveFixedMapPath(
-  workspaceRoot: string,
-  candidatePath: string
-): Promise<string> {
-  const samplePath = path.join(workspaceRoot, "data", "fixed-zones.deploy-sample.json");
-
-  const trySample = async (reason: string) => {
-    try {
-      await fs.access(samplePath);
-      console.warn(`[vtol preview] ${reason} Using bundled sample: ${samplePath}`);
-      return samplePath;
-    } catch {
-      console.warn(`[vtol preview] ${reason} Sample file missing; keeping ${candidatePath}`);
-      return candidatePath;
-    }
-  };
-
+async function materializeFixedMapForPython(candidatePath: string, requestId: string): Promise<string> {
   if (await isGitLfsPointerFile(candidatePath).catch(() => false)) {
-    return trySample(`Fixed map is a Git LFS pointer (real file not in image).`);
+    console.warn(
+      `[vtol preview] Fixed map is a Git LFS pointer (${candidatePath}); using in-bundle sample for Python.`
+    );
+    return writeBundledFixedMapToTemp(requestId);
   }
 
-  const head = await readFileHeadUtf8(candidatePath, 400).catch(() => "");
-  if (head.trimStart().startsWith("version ") && head.includes("git-lfs")) {
-    return trySample(`Fixed map looks like a Git LFS pointer.`);
+  try {
+    const st = await fs.stat(candidatePath);
+    if (st.size < 3_000_000) {
+      await readFeatureCollection(candidatePath);
+    }
+  } catch {
+    console.warn(
+      `[vtol preview] Fixed map is not readable as GeoJSON (${candidatePath}); using in-bundle sample for Python.`
+    );
+    return writeBundledFixedMapToTemp(requestId);
   }
 
   return candidatePath;
@@ -386,10 +380,9 @@ export async function generatePythonPreview(payload: Record<string, unknown>) {
     }
   }
 
-  fixedMapPath = await resolveEffectiveFixedMapPath(workspaceRoot, fixedMapPath);
-
   const tempDir = path.join(os.tmpdir(), "vtol-fyp-user");
   const requestId = `${Date.now()}-${Math.random().toString(36).slice(2, 8)}`;
+  fixedMapPath = await materializeFixedMapForPython(fixedMapPath, requestId);
   const aircraftMapPath = path.join(tempDir, `aircraft-${requestId}.geojson`);
   const routeOutputPath = path.join(tempDir, `route-${requestId}.geojson`);
 
@@ -429,7 +422,7 @@ export async function generatePythonPreview(payload: Record<string, unknown>) {
     readFeatureCollection(routeOutputPath),
     buildNoFlyZonesGeoJson(fixedMapPath, aircraftMapPath),
   ]);
-  const noFlyZonesGeoJson = await mergeDeploySampleIfNoPolygons(workspaceRoot, noFlyZonesRaw);
+  const noFlyZonesGeoJson = mergeDeploySampleIfNoPolygons(noFlyZonesRaw);
   const routeDistanceKm = calculateRouteDistanceKm(getRouteCoordinates(routeGeoJson));
   const weightKg = toFiniteNumber(form.weightKg, 1.4);
   const etaMinutes = Math.max(12, Math.round(routeDistanceKm * 4.8 + weightKg * 3));
