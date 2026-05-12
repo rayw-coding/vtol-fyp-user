@@ -34,7 +34,7 @@ export type DroneOption = {
   etaMinutes: number;
   batteryLevel: number;
   payloadKg: number;
-  availability: "ready" | "charging" | "maintenance";
+  availability: "ready" | "charging" | "maintenance" | "unavailable";
 };
 
 export type RoutePoint = {

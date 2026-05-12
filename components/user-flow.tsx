@@ -1,13 +1,46 @@
 "use client";
 
+import dynamic from "next/dynamic";
 import Link from "next/link";
-import { useCallback, useEffect, useState, useSyncExternalStore } from "react";
-import { GeoJsonMap } from "@/components/geojson-map";
-import { OrderLocationMapPicker } from "@/components/order-location-map";
+import { useCallback, useEffect, useMemo, useState, useSyncExternalStore } from "react";
+
+/** MapLibre must not load on the server (avoids ChunkLoadError / missing SSR chunks under `next start`). */
+function MapChunkLoading() {
+  return (
+    <div
+      className="map-live-shell"
+      style={{
+        borderRadius: 16,
+        minHeight: 420,
+        display: "flex",
+        alignItems: "center",
+        justifyContent: "center",
+      }}
+    >
+      <p className="panel-subtle">Loading map…</p>
+    </div>
+  );
+}
+
+const GeoJsonMap = dynamic(
+  () => import("@/components/geojson-map").then((m) => m.GeoJsonMap),
+  { ssr: false, loading: () => <MapChunkLoading /> }
+);
+
+const OrderLocationMapPicker = dynamic(
+  () => import("@/components/order-location-map").then((m) => m.OrderLocationMapPicker),
+  { ssr: false, loading: () => <MapChunkLoading /> }
+);
+
+const TrackingMapDemo = dynamic(
+  () => import("@/components/tracking-map-demo").then((m) => m.TrackingMapDemo),
+  { ssr: false, loading: () => <MapChunkLoading /> }
+);
 import { fetchOrderPreview } from "@/lib/api";
 import {
   buildMockOrder,
   buildMockPreview,
+  buildTrackingSteps,
   defaultMockOrder,
   defaultOrderForm,
 } from "@/lib/mock-order";
@@ -20,8 +53,14 @@ import {
   saveTrackingOrder,
 } from "@/lib/storage";
 import {
+  formatOrderStatus,
+  getRouteLineCoordinates,
+  orderStatusForDemoProgress,
+} from "@/lib/tracking-demo";
+import {
   DroneOption,
   OrderFormData,
+  OrderStatus,
   PreviewResult,
   TrackingStep,
 } from "@/lib/types";
@@ -88,26 +127,41 @@ function useIsHydrated(): boolean {
 
 function SiteHeader({ currentPath }: { currentPath: string }) {
   const navItems = [
-    { href: "/", label: "Order" },
-    { href: "/preview", label: "Preview" },
-    { href: "/confirm", label: "Confirm" },
-    { href: `/track/${defaultMockOrder.id}`, label: "Tracking" },
+    { href: "/", label: "Order", disabled: false as const },
+    { href: "/preview", label: "Preview", disabled: false as const },
+    { href: "/confirm", label: "Confirm", disabled: true as const },
+    { href: `/track/${defaultMockOrder.id}`, label: "Tracking", disabled: true as const },
   ];
+
+  const isNavActive = (href: string) =>
+    href.startsWith("/track") ? currentPath.startsWith("/track") : currentPath === href;
 
   return (
     <header className="topbar">
       <div className="container topbar-inner">
         <div className="brand">VTOL Medicine Delivery</div>
         <nav className="nav-row">
-          {navItems.map((item) => (
-            <Link
-              className={`nav-pill ${currentPath === item.href ? "is-active" : ""}`}
-              href={item.href}
-              key={item.href}
-            >
-              {item.label}
-            </Link>
-          ))}
+          {navItems.map((item) =>
+            item.disabled ? (
+              <span
+                aria-disabled
+                className={`nav-pill nav-pill--disabled ${isNavActive(item.href) ? "is-active" : ""}`}
+                key={item.href}
+                role="presentation"
+                title="Unavailable in this demo"
+              >
+                {item.label}
+              </span>
+            ) : (
+              <Link
+                className={`nav-pill ${isNavActive(item.href) ? "is-active" : ""}`}
+                href={item.href}
+                key={item.href}
+              >
+                {item.label}
+              </Link>
+            )
+          )}
         </nav>
       </div>
     </header>
@@ -119,12 +173,19 @@ function RouteMapPreview({ preview }: { preview: PreviewResult }) {
 }
 
 function DroneCard({ drone, selected }: { drone: DroneOption; selected: boolean }) {
+  const unavailable = drone.availability === "unavailable";
   return (
-    <div className={`drone-card ${selected ? "selected" : ""}`}>
+    <div
+      className={`drone-card ${unavailable ? "drone-card--unavailable" : ""} ${selected && !unavailable ? "selected" : ""}`}
+    >
       <div className="drone-card-header">
         <strong>{drone.id}</strong>
-        <span className={`tag ${drone.availability === "ready" ? "success" : "warning"}`}>
-          {drone.availability}
+        <span
+          className={`tag ${
+            unavailable ? "neutral" : drone.availability === "ready" ? "success" : "warning"
+          }`}
+        >
+          {unavailable ? "not available" : drone.availability}
         </span>
       </div>
       <p className="panel-subtle">{drone.model}</p>
@@ -479,6 +540,7 @@ export function PreviewPage() {
   const preview = livePreview ?? cachedPreview;
 
   const selectedDrone = preview.availableDrones.find((drone) => drone.id === preview.droneId);
+  const canContinueToConfirm = preview.canDeliver;
 
   return (
     <div className="page-shell">
@@ -510,7 +572,7 @@ export function PreviewPage() {
             </div>
             <div className="stat-card">
               <span>Available drone</span>
-              <strong>{preview.droneId}</strong>
+              <strong>{preview.canDeliver ? preview.droneId : "None"}</strong>
             </div>
             <div className="stat-card">
               <span>Safety check</span>
@@ -586,9 +648,20 @@ export function PreviewPage() {
                 <Link className="secondary-button link-button" href="/">
                   Back to edit order
                 </Link>
-                <Link className="primary-button link-button" href="/confirm">
-                  Continue to confirmation
-                </Link>
+                {canContinueToConfirm ? (
+                  <Link className="primary-button link-button" href="/confirm">
+                    Continue to confirmation
+                  </Link>
+                ) : (
+                  <span
+                    aria-disabled
+                    className="primary-button link-button is-disabled"
+                    role="button"
+                    title="No UAV is available for this demo"
+                  >
+                    Continue to confirmation
+                  </span>
+                )}
               </div>
             </div>
           </div>
@@ -709,19 +782,68 @@ export function ConfirmPage() {
   );
 }
 
+const TRACKING_DEMO_DURATION_MS = 60_000;
+const TRACKING_DEMO_BATTERY_DROP = 45;
+
 export function TrackingPage({ orderId }: { orderId: string }) {
   const isHydrated = useIsHydrated();
-  const order = isHydrated ? loadTrackingOrder(orderId) ?? defaultMockOrder : defaultMockOrder;
+  const order = useMemo(() => {
+    if (!isHydrated) {
+      return defaultMockOrder;
+    }
+    return loadTrackingOrder(orderId) ?? defaultMockOrder;
+  }, [isHydrated, orderId]);
+
+  const [progress, setProgress] = useState(0);
+  const [liveStatus, setLiveStatus] = useState<OrderStatus>(order.status);
+  const [battery, setBattery] = useState(order.preview.batteryLevel);
+
+  useEffect(() => {
+    setLiveStatus(order.status);
+    setBattery(order.preview.batteryLevel);
+    setProgress(0);
+  }, [order.id, order.preview.batteryLevel, order.status]);
+
+  useEffect(() => {
+    if (!isHydrated) {
+      return;
+    }
+    const routeCoords = getRouteLineCoordinates(order.preview);
+    if (routeCoords.length < 2) {
+      return;
+    }
+
+    const startBat = order.preview.batteryLevel;
+    const endBat = Math.max(0, startBat - TRACKING_DEMO_BATTERY_DROP);
+    const t0 = performance.now();
+    let raf = 0;
+
+    const step = (now: number) => {
+      const t = Math.min(1, (now - t0) / TRACKING_DEMO_DURATION_MS);
+      setProgress(t);
+      setBattery(Math.round(startBat + (endBat - startBat) * t));
+      setLiveStatus(orderStatusForDemoProgress(t));
+      if (t < 1) {
+        raf = requestAnimationFrame(step);
+      }
+    };
+
+    raf = requestAnimationFrame(step);
+    return () => cancelAnimationFrame(raf);
+  }, [isHydrated, order]);
+
+  const liveSteps = useMemo(() => buildTrackingSteps(liveStatus), [liveStatus]);
 
   return (
     <div className="page-shell">
-      <SiteHeader currentPath={`/track/${defaultMockOrder.id}`} />
+      <SiteHeader currentPath={`/track/${orderId}`} />
       <main className="container section">
         <div className="section-heading">
           <h2>Track order</h2>
           <p>
-            Mock tracking page for the user side. It displays a realistic order state flow:
-            pending, assigned, flying to pickup, delivering, and completed.
+            Mock tracking with a one-minute demo: the UAV marker moves along the planned route,
+            battery decreases by about {TRACKING_DEMO_BATTERY_DROP}%, and the timeline updates with the
+            mission phase.
           </p>
         </div>
 
@@ -731,13 +853,13 @@ export function TrackingPage({ orderId }: { orderId: string }) {
               <div className="chip-row" style={{ marginBottom: 16 }}>
                 <span className="chip">Order {order.id}</span>
                 <span className="chip">Created {order.createdAt}</span>
-                <span className="tag success">{order.status}</span>
+                <span className="tag success">{formatOrderStatus(liveStatus)}</span>
               </div>
               <h3>Live status summary</h3>
               <div className="summary-grid">
                 <div className="stat-card">
                   <span>Current status</span>
-                  <strong>{order.status}</strong>
+                  <strong>{formatOrderStatus(liveStatus)}</strong>
                 </div>
                 <div className="stat-card">
                   <span>Assigned drone</span>
@@ -749,16 +871,20 @@ export function TrackingPage({ orderId }: { orderId: string }) {
                 </div>
                 <div className="stat-card">
                   <span>Battery</span>
-                  <strong>{order.preview.batteryLevel}%</strong>
+                  <strong>{battery}%</strong>
+                </div>
+                <div className="stat-card">
+                  <span>Demo progress</span>
+                  <strong>{Math.round(progress * 100)}%</strong>
                 </div>
               </div>
             </div>
 
-            <RouteMapPreview preview={order.preview} />
+            <TrackingMapDemo preview={order.preview} progress={progress} />
           </div>
 
           <div className="preview-layout">
-            <TrackingTimeline steps={order.trackingSteps} />
+            <TrackingTimeline steps={liveSteps} />
             <div className="panel">
               <h3>Delivery details</h3>
               <div className="info-grid">

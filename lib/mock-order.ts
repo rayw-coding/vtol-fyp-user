@@ -74,7 +74,7 @@ export function buildMockPreview(form: OrderFormData): PreviewResult {
       etaMinutes: Math.max(6, etaMinutes - 8),
       batteryLevel: 82,
       payloadKg: 3.5,
-      availability: "ready" as const,
+      availability: "unavailable" as const,
     },
     {
       id: "UAV-04",
@@ -82,7 +82,7 @@ export function buildMockPreview(form: OrderFormData): PreviewResult {
       etaMinutes: etaMinutes + 2,
       batteryLevel: 64,
       payloadKg: 2.2,
-      availability: "ready" as const,
+      availability: "unavailable" as const,
     },
     {
       id: "UAV-11",
@@ -90,7 +90,7 @@ export function buildMockPreview(form: OrderFormData): PreviewResult {
       etaMinutes: etaMinutes + 7,
       batteryLevel: 39,
       payloadKg: 1.8,
-      availability: "charging" as const,
+      availability: "unavailable" as const,
     },
   ];
 
@@ -144,18 +144,19 @@ export function buildMockPreview(form: OrderFormData): PreviewResult {
   };
 
   return {
-    canDeliver: true,
+    canDeliver: false,
     noFlyCheckPassed: true,
-    statusMessage: "Preview generated successfully. A safe route was found.",
+    statusMessage:
+      "No UAVs are available for assignment right now. The route below is for planning reference only.",
     etaMinutes,
     priceHkd,
     distanceKm,
-    droneId: "UAV-07",
-    droneModel: "VTOL Courier Mk II",
+    droneId: "None",
+    droneModel: "—",
     batteryLevel: 82,
     riskLevel,
     summary:
-      "This first-pass preview assumes one available drone and a safe reroute around current restricted airspace.",
+      "Fleet capacity is fully booked; no aircraft can be reserved for this mission window despite a valid planned path.",
     availableDrones,
     routeGeoJson,
     noFlyZonesGeoJson,
@@ -214,7 +215,16 @@ const statusLabels: Record<OrderStatus, string> = {
   completed: "Completed",
 };
 
-function buildTrackingSteps(currentStatus: OrderStatus): TrackingStep[] {
+/** Irregular demo times; delivering → completed ≈ 12m 17s apart. */
+const trackingDemoTimestamps: Record<OrderStatus, string> = {
+  pending: "2026-04-10 08:53",
+  assigned: "2026-04-10 09:19",
+  flying_to_pickup: "2026-04-10 10:36",
+  delivering: "2026-04-10 11:42:08",
+  completed: "2026-04-10 11:54:25",
+};
+
+export function buildTrackingSteps(currentStatus: OrderStatus): TrackingStep[] {
   const orderedStatuses: OrderStatus[] = [
     "pending",
     "assigned",
@@ -223,7 +233,7 @@ function buildTrackingSteps(currentStatus: OrderStatus): TrackingStep[] {
     "completed",
   ];
 
-  return orderedStatuses.map((status, index) => ({
+  return orderedStatuses.map((status) => ({
     status,
     label: statusLabels[status],
     note:
@@ -236,7 +246,7 @@ function buildTrackingSteps(currentStatus: OrderStatus): TrackingStep[] {
             : status === "delivering"
               ? "The medicine is en route to the patient destination."
               : "The package has been delivered successfully.",
-    timestamp: `2026-04-10 ${String(9 + index).padStart(2, "0")}:00`,
+    timestamp: trackingDemoTimestamps[status],
     completed: orderedStatuses.indexOf(status) <= orderedStatuses.indexOf(currentStatus),
   }));
 }
@@ -246,7 +256,7 @@ export function buildMockOrder(form: OrderFormData = defaultOrderForm): MockOrde
 
   return {
     id: "ORD-20260410-001",
-    createdAt: "2026-04-10 09:00",
+    createdAt: "2026-04-10 08:53",
     form,
     preview,
     status: "assigned",

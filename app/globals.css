@@ -92,6 +92,13 @@ textarea {
   background: rgba(21, 94, 239, 0.09);
 }
 
+.nav-pill.nav-pill--disabled {
+  opacity: 0.52;
+  cursor: not-allowed;
+  pointer-events: none;
+  user-select: none;
+}
+
 .hero {
   padding: 80px 0 48px;
 }
@@ -179,6 +186,11 @@ textarea {
   color: var(--danger);
 }
 
+.tag.neutral {
+  background: rgba(100, 110, 125, 0.16);
+  color: #5c6570;
+}
+
 .primary-button,
 .secondary-button {
   border: 0;
@@ -194,6 +206,14 @@ textarea {
   opacity: 0.65;
   cursor: not-allowed;
   transform: none;
+}
+
+.primary-button.is-disabled,
+.primary-button.is-disabled:hover {
+  opacity: 0.55;
+  cursor: not-allowed;
+  transform: none;
+  pointer-events: none;
 }
 
 .primary-button:hover,
@@ -549,6 +569,17 @@ textarea {
   border-color: rgba(21, 94, 239, 0.4);
   box-shadow: inset 0 0 0 1px rgba(21, 94, 239, 0.2);
   background: rgba(21, 94, 239, 0.04);
+}
+
+.drone-card--unavailable {
+  opacity: 0.78;
+  background: #f0f2f5;
+  border-color: #dde1e6;
+  color: #6b7280;
+}
+
+.drone-card--unavailable .mini-stats {
+  color: #8b939e;
 }
 
 .drone-card-header {
