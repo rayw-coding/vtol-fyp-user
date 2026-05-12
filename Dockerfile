@@ -1,0 +1,30 @@
+FROM node:20-bookworm-slim
+
+WORKDIR /app
+
+# System dependencies for Python planner scripts.
+RUN apt-get update && apt-get install -y --no-install-recommends \
+  python3 \
+  python3-pip \
+  python3-venv \
+  && rm -rf /var/lib/apt/lists/*
+
+# Install JS dependencies first for better layer caching.
+COPY package.json yarn.lock .yarnrc.yml ./
+COPY .yarn ./.yarn
+RUN corepack enable && yarn install --immutable
+
+# Install Python dependencies required by mapGEN.py / mapPlanUAV.py.
+COPY requirements.txt ./
+RUN pip3 install --no-cache-dir -r requirements.txt
+
+# Copy application source and build Next.js app.
+COPY . .
+RUN yarn build
+
+ENV NODE_ENV=production
+ENV PORT=10000
+
+EXPOSE 10000
+
+CMD ["sh", "-c", "yarn start -p ${PORT}"]
