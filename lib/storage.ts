@@ -6,6 +6,9 @@ const ORDER_FORM_KEY = "vtol-user-order-form";
 const ORDER_PREVIEW_KEY = "vtol-user-order-preview";
 const ORDER_TRACKING_KEY = "vtol-user-tracking";
 
+/** localStorage is typically ~5MiB; stay under to avoid QuotaExceededError. */
+const PREVIEW_JSON_SOFT_LIMIT_CHARS = 4_000_000;
+
 function readJson<T>(key: string): T | null {
   if (typeof window === "undefined") {
     return null;
@@ -31,6 +34,63 @@ function writeJson<T>(key: string, value: T) {
   window.localStorage.setItem(key, JSON.stringify(value));
 }
 
+function trySetItem(key: string, json: string): boolean {
+  try {
+    window.localStorage.setItem(key, json);
+    return true;
+  } catch (error) {
+    const isQuota =
+      error instanceof DOMException &&
+      (error.name === "QuotaExceededError" || error.code === 22);
+    if (isQuota) {
+      return false;
+    }
+    throw error;
+  }
+}
+
+/** Drop heavy no-fly overlays; route + pricing UI still work. */
+function slimPreviewForStorage(preview: PreviewResult): PreviewResult {
+  return {
+    ...preview,
+    noFlyZonesGeoJson: {
+      type: "FeatureCollection",
+      features: [],
+    },
+  };
+}
+
+function preparePreviewForStorage(preview: PreviewResult): PreviewResult {
+  const full = withPreviewDefaults(preview);
+  if (JSON.stringify(full).length <= PREVIEW_JSON_SOFT_LIMIT_CHARS) {
+    return full;
+  }
+  return withPreviewDefaults(slimPreviewForStorage(preview));
+}
+
+function savePreviewPayload(preview: PreviewResult) {
+  if (typeof window === "undefined") {
+    return;
+  }
+
+  const prepared = preparePreviewForStorage(preview);
+  let payload = JSON.stringify(prepared);
+
+  if (trySetItem(ORDER_PREVIEW_KEY, payload)) {
+    return;
+  }
+
+  const slim = withPreviewDefaults(slimPreviewForStorage(preview));
+  payload = JSON.stringify(slim);
+  if (trySetItem(ORDER_PREVIEW_KEY, payload)) {
+    return;
+  }
+
+  throw new Error(
+    "Browser storage is full. Clear site data for this site or use another browser profile, then try again."
+  );
+}
+
 function withPreviewDefaults(preview: PreviewResult): PreviewResult {
   return {
     ...preview,
@@ -50,7 +110,7 @@ export function loadOrderForm() {
 }
 
 export function saveOrderPreview(preview: PreviewResult) {
-  writeJson(ORDER_PREVIEW_KEY, withPreviewDefaults(preview));
+  savePreviewPayload(preview);
 }
 
 export function loadOrderPreview() {
@@ -59,10 +119,26 @@ export function loadOrderPreview() {
 }
 
 export function saveTrackingOrder(order: MockOrder) {
-  writeJson(`${ORDER_TRACKING_KEY}:${order.id}`, {
+  const orderToSave = {
     ...order,
-    preview: withPreviewDefaults(order.preview),
-  });
+    preview: preparePreviewForStorage(order.preview),
+  };
+  const key = `${ORDER_TRACKING_KEY}:${order.id}`;
+  let payload = JSON.stringify(orderToSave);
+  if (trySetItem(key, payload)) {
+    return;
+  }
+  const slimOrder = {
+    ...orderToSave,
+    preview: withPreviewDefaults(slimPreviewForStorage(order.preview)),
+  };
+  payload = JSON.stringify(slimOrder);
+  if (trySetItem(key, payload)) {
+    return;
+  }
+  throw new Error(
+    "Browser storage is full. Clear site data for this site or use another browser profile, then try again."
+  );
 }
 
 export function loadTrackingOrder(orderId: string) {
