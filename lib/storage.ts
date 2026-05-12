@@ -6,8 +6,8 @@ const ORDER_FORM_KEY = "vtol-user-order-form";
 const ORDER_PREVIEW_KEY = "vtol-user-order-preview";
 const ORDER_TRACKING_KEY = "vtol-user-tracking";
 
-/** localStorage is typically ~5MiB; stay under to avoid QuotaExceededError. */
-const PREVIEW_JSON_SOFT_LIMIT_CHARS = 4_000_000;
+/** localStorage quota is small and shared with other keys; keep payload tiny. */
+const PREVIEW_JSON_SOFT_LIMIT_CHARS = 450_000;
 
 function readJson<T>(key: string): T | null {
   if (typeof window === "undefined") {
@@ -26,6 +26,21 @@ function readJson<T>(key: string): T | null {
   }
 }
 
+function readJsonFromSession<T>(key: string): T | null {
+  if (typeof window === "undefined") {
+    return null;
+  }
+  const raw = window.sessionStorage.getItem(key);
+  if (!raw) {
+    return null;
+  }
+  try {
+    return JSON.parse(raw) as T;
+  } catch {
+    return null;
+  }
+}
+
 function writeJson<T>(key: string, value: T) {
   if (typeof window === "undefined") {
     return;
@@ -34,18 +49,21 @@ function writeJson<T>(key: string, value: T) {
   window.localStorage.setItem(key, JSON.stringify(value));
 }
 
-function trySetItem(key: string, json: string): boolean {
+function tryLocalStorageSetItem(key: string, json: string): boolean {
   try {
     window.localStorage.setItem(key, json);
     return true;
-  } catch (error) {
-    const isQuota =
-      error instanceof DOMException &&
-      (error.name === "QuotaExceededError" || error.code === 22);
-    if (isQuota) {
-      return false;
-    }
-    throw error;
+  } catch {
+    return false;
+  }
+}
+
+function trySessionStorageSetItem(key: string, json: string): boolean {
+  try {
+    window.sessionStorage.setItem(key, json);
+    return true;
+  } catch {
+    return false;
   }
 }
 
@@ -60,12 +78,39 @@ function slimPreviewForStorage(preview: PreviewResult): PreviewResult {
   };
 }
 
+/** Route-only GeoJSON: keep line + a few markers, drop huge geometries if any. */
+function trimRouteGeoJsonForStorage(preview: PreviewResult): PreviewResult["routeGeoJson"] {
+  const fc = preview.routeGeoJson;
+  const maxFeatures = 12;
+  const features = fc.features.slice(0, maxFeatures);
+  return { type: "FeatureCollection", features };
+}
+
+function minimalPreviewForStorage(preview: PreviewResult): PreviewResult {
+  const base = withPreviewDefaults(slimPreviewForStorage(preview));
+  const selected = base.availableDrones.find((d) => d.id === base.droneId) ?? base.availableDrones[0];
+  const drones = selected
+    ? base.availableDrones.filter((d) => d.id === selected.id).slice(0, 1)
+    : base.availableDrones.slice(0, 1);
+
+  return {
+    ...base,
+    routeGeoJson: trimRouteGeoJsonForStorage(base),
+    availableDrones: drones.length > 0 ? drones : base.availableDrones.slice(0, 1),
+    timeline: base.timeline.slice(0, 24),
+    checklist: base.checklist.slice(0, 24),
+    blockedZones: base.blockedZones.slice(0, 24),
+    summary: base.summary.slice(0, 2000),
+    statusMessage: base.statusMessage.slice(0, 2000),
+  };
+}
+
 function preparePreviewForStorage(preview: PreviewResult): PreviewResult {
-  const full = withPreviewDefaults(preview);
-  if (JSON.stringify(full).length <= PREVIEW_JSON_SOFT_LIMIT_CHARS) {
-    return full;
+  let candidate = withPreviewDefaults(slimPreviewForStorage(preview));
+  if (JSON.stringify(candidate).length > PREVIEW_JSON_SOFT_LIMIT_CHARS) {
+    candidate = minimalPreviewForStorage(preview);
   }
-  return withPreviewDefaults(slimPreviewForStorage(preview));
+  return candidate;
 }
 
 function savePreviewPayload(preview: PreviewResult) {
@@ -73,16 +118,38 @@ function savePreviewPayload(preview: PreviewResult) {
     return;
   }
 
-  const prepared = preparePreviewForStorage(preview);
+  try {
+    window.localStorage.removeItem(ORDER_PREVIEW_KEY);
+  } catch {
+    /* ignore */
+  }
+  try {
+    window.sessionStorage.removeItem(ORDER_PREVIEW_KEY);
+  } catch {
+    /* ignore */
+  }
+
+  let prepared = preparePreviewForStorage(preview);
   let payload = JSON.stringify(prepared);
 
-  if (trySetItem(ORDER_PREVIEW_KEY, payload)) {
+  if (payload.length > PREVIEW_JSON_SOFT_LIMIT_CHARS) {
+    prepared = minimalPreviewForStorage(preview);
+    payload = JSON.stringify(prepared);
+  }
+
+  if (tryLocalStorageSetItem(ORDER_PREVIEW_KEY, payload)) {
+    return;
+  }
+  if (trySessionStorageSetItem(ORDER_PREVIEW_KEY, payload)) {
     return;
   }
 
-  const slim = withPreviewDefaults(slimPreviewForStorage(preview));
-  payload = JSON.stringify(slim);
-  if (trySetItem(ORDER_PREVIEW_KEY, payload)) {
+  const tiny = minimalPreviewForStorage(preview);
+  const tinyPayload = JSON.stringify(tiny);
+  if (tryLocalStorageSetItem(ORDER_PREVIEW_KEY, tinyPayload)) {
+    return;
+  }
+  if (trySessionStorageSetItem(ORDER_PREVIEW_KEY, tinyPayload)) {
     return;
   }
 
@@ -114,26 +181,43 @@ export function saveOrderPreview(preview: PreviewResult) {
 }
 
 export function loadOrderPreview() {
-  const preview = readJson<PreviewResult>(ORDER_PREVIEW_KEY);
-  return preview ? withPreviewDefaults(preview) : null;
+  const fromLocal = readJson<PreviewResult>(ORDER_PREVIEW_KEY);
+  if (fromLocal) {
+    return withPreviewDefaults(fromLocal);
+  }
+  const fromSession = readJsonFromSession<PreviewResult>(ORDER_PREVIEW_KEY);
+  return fromSession ? withPreviewDefaults(fromSession) : null;
 }
 
 export function saveTrackingOrder(order: MockOrder) {
-  const orderToSave = {
+  const key = `${ORDER_TRACKING_KEY}:${order.id}`;
+  try {
+    window.localStorage.removeItem(key);
+  } catch {
+    /* ignore */
+  }
+
+  let orderToSave = {
     ...order,
     preview: preparePreviewForStorage(order.preview),
   };
-  const key = `${ORDER_TRACKING_KEY}:${order.id}`;
   let payload = JSON.stringify(orderToSave);
-  if (trySetItem(key, payload)) {
+  if (payload.length > PREVIEW_JSON_SOFT_LIMIT_CHARS) {
+    orderToSave = {
+      ...order,
+      preview: minimalPreviewForStorage(order.preview),
+    };
+    payload = JSON.stringify(orderToSave);
+  }
+  if (tryLocalStorageSetItem(key, payload)) {
     return;
   }
   const slimOrder = {
-    ...orderToSave,
-    preview: withPreviewDefaults(slimPreviewForStorage(order.preview)),
+    ...order,
+    preview: minimalPreviewForStorage(order.preview),
   };
   payload = JSON.stringify(slimOrder);
-  if (trySetItem(key, payload)) {
+  if (tryLocalStorageSetItem(key, payload)) {
     return;
   }
   throw new Error(
