@@ -14,9 +14,11 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 COPY package.json yarn.lock .yarnrc.yml ./
 RUN corepack enable && yarn install --immutable
 
-# Install Python dependencies required by mapGEN.py / mapPlanUAV.py.
+# Install Python deps in a venv (Debian blocks system-wide pip; PEP 668).
 COPY requirements.txt ./
-RUN pip3 install --no-cache-dir -r requirements.txt
+RUN python3 -m venv .venv \
+  && .venv/bin/pip install --upgrade pip \
+  && .venv/bin/pip install --no-cache-dir -r requirements.txt
 
 # Copy application source and build Next.js app.
 COPY . .
