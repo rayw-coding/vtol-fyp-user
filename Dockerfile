@@ -10,8 +10,8 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
   && rm -rf /var/lib/apt/lists/*
 
 # Install JS dependencies first for better layer caching.
+# Do not COPY .yarn: this repo uses Corepack + package.json#packageManager (Yarn is not vendored in git).
 COPY package.json yarn.lock .yarnrc.yml ./
-COPY .yarn ./.yarn
 RUN corepack enable && yarn install --immutable
 
 # Install Python dependencies required by mapGEN.py / mapPlanUAV.py.
