@@ -204,6 +204,39 @@ async function buildNoFlyZonesGeoJson(
   };
 }
 
+function hasPolygonFeatures(fc: GeoJsonFeatureCollection): boolean {
+  return fc.features.some(
+    (f) => f.geometry.type === "Polygon" || f.geometry.type === "MultiPolygon"
+  );
+}
+
+/** If deploy/LFS left merged zones empty, append small bundled polygons so the UI can render overlays. */
+async function mergeDeploySampleIfNoPolygons(
+  workspaceRoot: string,
+  merged: GeoJsonFeatureCollection
+): Promise<GeoJsonFeatureCollection> {
+  if (hasPolygonFeatures(merged)) {
+    return merged;
+  }
+
+  const samplePath = path.join(workspaceRoot, "data", "fixed-zones.deploy-sample.json");
+  try {
+    const sample = await readFeatureCollection(samplePath);
+    if (!hasPolygonFeatures(sample)) {
+      return merged;
+    }
+    console.warn(
+      "[vtol preview] Merged no-fly zones had no polygons; appending data/fixed-zones.deploy-sample.json"
+    );
+    return {
+      type: "FeatureCollection",
+      features: [...merged.features, ...sample.features],
+    };
+  } catch {
+    return merged;
+  }
+}
+
 function getRouteCoordinates(routeGeoJson: PreviewResult["routeGeoJson"]) {
   const pathFeature = routeGeoJson.features.find(
     (feature): feature is Extract<GeoJsonFeature, { geometry: { type: "LineString" } }> =>
@@ -392,10 +425,11 @@ export async function generatePythonPreview(payload: Record<string, unknown>) {
     );
   }
 
-  const [routeGeoJson, noFlyZonesGeoJson] = await Promise.all([
+  const [routeGeoJson, noFlyZonesRaw] = await Promise.all([
     readFeatureCollection(routeOutputPath),
     buildNoFlyZonesGeoJson(fixedMapPath, aircraftMapPath),
   ]);
+  const noFlyZonesGeoJson = await mergeDeploySampleIfNoPolygons(workspaceRoot, noFlyZonesRaw);
   const routeDistanceKm = calculateRouteDistanceKm(getRouteCoordinates(routeGeoJson));
   const weightKg = toFiniteNumber(form.weightKg, 1.4);
   const etaMinutes = Math.max(12, Math.round(routeDistanceKm * 4.8 + weightKg * 3));

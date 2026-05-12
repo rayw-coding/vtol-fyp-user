@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import Map, {
   Layer,
   Marker,
@@ -70,7 +70,7 @@ export function GeoJsonMap({ preview }: { preview: PreviewResult }) {
       minLat: Math.min(...latitudes),
       maxLat: Math.max(...latitudes),
     };
-  }, [preview.routeGeoJson.features]);
+  }, [preview.routeGeoJson.features, preview.noFlyZonesGeoJson.features]);
 
   const pointFeatures = useMemo(
     () =>
@@ -119,6 +119,27 @@ export function GeoJsonMap({ preview }: { preview: PreviewResult }) {
       latitude: (bounds.minLat + bounds.maxLat) / 2,
       zoom: 12.5,
     };
+  }, [bounds]);
+
+  useEffect(() => {
+    const id = requestAnimationFrame(() => {
+      const map = mapRef.current?.getMap();
+      if (!map || !bounds) {
+        return;
+      }
+      try {
+        map.fitBounds(
+          [
+            [bounds.minLng, bounds.minLat],
+            [bounds.maxLng, bounds.maxLat],
+          ],
+          { padding: 72, duration: 450, maxZoom: 13 }
+        );
+      } catch {
+        /* ignore */
+      }
+    });
+    return () => cancelAnimationFrame(id);
   }, [bounds]);
 
   return (
